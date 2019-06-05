@@ -7,7 +7,6 @@ from torch.utils.data import DataLoader
 import torchvision as tv
 
 from time import time
-from model import Model
 from attack import FastGradientSignUntargeted
 from utils import makedirs, create_logger, tensor2cuda, numpy2cuda, evaluate, save_model
 
@@ -30,25 +29,29 @@ class Trainer():
         logger = self.logger
 
         opt = torch.optim.Adam(model.parameters(), args.learning_rate)
-
+        # scheduler = torch.optim.lr_scheduler.StepLR(opt, step_size=2, gamma=0.1)
         _iter = 0
 
         begin_time = time()
 
-        for epoch in range(1, args.max_epoch+1):
+        for epoch in range(1, args.max_epoch + 1):
+            # scheduler.step()
             for data, label in tr_loader:
                 data, label = tensor2cuda(data), tensor2cuda(label)
 
                 if adv_train:
-                    # When training, the adversarial example is created from a random 
-                    # close point to the original data point. If in evaluation mode, 
+                    # When training, the adversarial example is created from a random
+                    # close point to the original data point. If in evaluation mode,
                     # just start from the original data point.
                     adv_data = self.attack.perturb(data, label, 'mean', True)
                     output = model(adv_data, _eval=False)
                 else:
                     output = model(data, _eval=False)
-
-                loss = F.cross_entropy(output, label)
+                if self.args.nexpa_train:
+                    loss = model.loss_a(output, label) + model.loss_b(output, label) + model.loss_c(output, label) + \
+                        model.loss_nonexpa()
+                else:
+                    loss = F.cross_entropy(output, label)
 
                 opt.zero_grad()
                 loss.backward()
@@ -101,10 +104,9 @@ class Trainer():
                     begin_time = time()
 
                 if _iter % args.n_store_image_step == 0:
-                    tv.utils.save_image(torch.cat([data.cpu(), adv_data.cpu()], dim=0), 
-                                        os.path.join(args.log_folder, 'images_%d.jpg' % _iter), 
+                    tv.utils.save_image(torch.cat([data.cpu(), adv_data.cpu()], dim=0),
+                                        os.path.join(args.log_folder, 'images_%d.jpg' % _iter),
                                         nrow=16)
-                    
 
                 if _iter % args.n_checkpoint_step == 0:
                     file_name = os.path.join(args.model_folder, 'checkpoint_%d.pth' % _iter)
@@ -113,7 +115,7 @@ class Trainer():
                 _iter += 1
 
     def test(self, model, loader, adv_test=False):
-        # adv_test is False, return adv_acc as -1 
+        # adv_test is False, return adv_acc as -1
 
         total_acc = 0.0
         num = 0
@@ -127,7 +129,6 @@ class Trainer():
 
                 pred = torch.max(output, dim=1)[1]
                 te_acc = evaluate(pred.cpu().numpy(), label.cpu().numpy(), 'sum')
-                
                 total_acc += te_acc
                 num += output.shape[0]
 
@@ -144,7 +145,8 @@ class Trainer():
                 else:
                     total_adv_acc = -num
 
-        return total_acc / num , total_adv_acc / num
+        return total_acc / num, total_adv_acc / num
+
 
 def main(args):
 
@@ -163,14 +165,18 @@ def main(args):
 
     print_args(args, logger)
 
+    if args.nexpa_train:
+        from model.l2_nonexpansive_model import Model
+    else:
+        from model.model import Model
     model = Model(i_c=1, n_c=10)
 
-    attack = FastGradientSignUntargeted(model, 
-                                        args.epsilon, 
-                                        args.alpha, 
-                                        min_val=0, 
-                                        max_val=1, 
-                                        max_iters=args.k, 
+    attack = FastGradientSignUntargeted(model,
+                                        args.epsilon,
+                                        args.alpha,
+                                        min_val=0,
+                                        max_val=1,
+                                        max_iters=args.k,
                                         _type=args.perturbation_type)
 
     if torch.cuda.is_available():
@@ -179,17 +185,17 @@ def main(args):
     trainer = Trainer(args, logger, attack)
 
     if args.todo == 'train':
-        tr_dataset = tv.datasets.MNIST(args.data_root, 
-                                       train=True, 
-                                       transform=tv.transforms.ToTensor(), 
+        tr_dataset = tv.datasets.MNIST(args.data_root,
+                                       train=True,
+                                       transform=tv.transforms.ToTensor(),
                                        download=True)
 
         tr_loader = DataLoader(tr_dataset, batch_size=args.batch_size, shuffle=True, num_workers=4)
 
         # evaluation during training
-        te_dataset = tv.datasets.MNIST(args.data_root, 
-                                       train=False, 
-                                       transform=tv.transforms.ToTensor(), 
+        te_dataset = tv.datasets.MNIST(args.data_root,
+                                       train=False,
+                                       transform=tv.transforms.ToTensor(),
                                        download=True)
 
         te_loader = DataLoader(te_dataset, batch_size=args.batch_size, shuffle=False, num_workers=4)
@@ -199,8 +205,6 @@ def main(args):
         pass
     else:
         raise NotImplementedError
-    
-
 
 
 if __name__ == '__main__':

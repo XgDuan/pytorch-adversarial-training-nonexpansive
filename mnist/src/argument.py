@@ -26,7 +26,7 @@ def parser():
     parser.add_argument('--batch_size', '-b', type=int, default=64, help='batch size')
     parser.add_argument('--max_epoch', '-m_e', type=int, default=60,
         help='the maximum numbers of the model see a sample')
-    parser.add_argument('--learning_rate', '-lr', type=float, default=1, help='learning rate')
+    parser.add_argument('--learning_rate', '-lr', type=float, default=1e-5, help='learning rate')
 
     parser.add_argument('--gpu', '-g', default='0', help='which gpu to use')
     parser.add_argument('--n_eval_step', type=int, default=100,

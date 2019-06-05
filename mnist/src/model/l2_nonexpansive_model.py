@@ -28,7 +28,9 @@ class NormPooling2d(nn.Module):
         self.avg_pool_kernel = nn.AvgPool2d(*k, **kw)
 
     def forward(self, x):
-        return 2.0 * torch.sqrt(self.avg_pool_kernel(x * x))
+        ks = self.avg_pool_kernel.kernel_size
+        coef = __import__('math').sqrt(ks[0] * ks[1])
+        return coef * torch.sqrt(self.avg_pool_kernel(x * x))
 
 
 class Model(nn.Module):
@@ -50,7 +52,7 @@ class Model(nn.Module):
         self.fc2 = nn.Linear(1024 * self.relu_expa, n_c, bias=use_bias)
         self.u = nn.Parameter(torch.rand(n_c), requires_grad=True)
         self.v = nn.Parameter(torch.tensor(v), requires_grad=v_use_grad)
-        self.z = nn.Parameter(torch.tensor(z), requires_grad=False)
+        self.z = torch.tensor(z, requires_grad=False)
 
     def forward(self, x_i, _eval=False):
 
@@ -85,7 +87,7 @@ class Model(nn.Module):
     def loss_c(self, pred, label):
         digit = F.softmax(pred * self.z)
         digit = torch.gather(digit, 1, label.view(-1, 1))
-        return torch.mean(torch.log(1 - digit + 1e-10) / self.z)
+        return torch.mean(torch.log(1 - digit + 1e-10)) / self.z
 
     def loss_nonexpa(self):
         loss_list = []
@@ -97,8 +99,10 @@ class Model(nn.Module):
 
         for name, val in self.state_dict().items():
             if name.endswith('weight'):
-                val_t = torch.transpose(val, 0, 1)
-                loss_list.append(torch.min(l_loss(torch.matmul(val, val_t)), l_loss(torch.matmul(val_t, val))))
+                val_mat = val.reshape(val.shape[0], -1)
+                val_mat_t = torch.transpose(val_mat, 0, 1)
+                # import ipdb; ipdb.set_trace()
+                loss_list.append(torch.min(l_loss(torch.matmul(val_mat, val_mat_t)), l_loss(torch.matmul(val_mat_t, val_mat))))
 
         return torch.sum(torch.stack(loss_list))
 
@@ -106,6 +110,6 @@ if __name__ == '__main__':
     i = torch.FloatTensor(4, 1, 28, 28)
 
     n = Model()
-    n.nonexpansive_loss()
     print(n(i).size())
 
+    l = n.loss_nonexpa()

@@ -94,8 +94,7 @@ class Model(nn.Module):
 
         def l_loss(m):
             sum_over_axis1 = torch.sum(torch.abs(m), 1) - 1
-            sum_over_axis1 = torch.cat([sum_over_axis1, torch.zeros_like(sum_over_axis1)], dim=-1)
-            return torch.sum(torch.max(sum_over_axis1))
+            return torch.sum(F.relu(sum_over_axis1))
 
         for name, val in self.state_dict().items():
             if name.endswith('weight'):

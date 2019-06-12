@@ -12,6 +12,7 @@ from utils import makedirs, create_logger, tensor2cuda, numpy2cuda, evaluate, sa
 
 from argument import parser, print_args
 
+
 class Trainer():
     def __init__(self, args, logger, attack):
         self.args = args
@@ -29,6 +30,7 @@ class Trainer():
         logger = self.logger
 
         opt = torch.optim.Adam(model.parameters(), args.learning_rate)
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(opt, patience=400)
         # scheduler = torch.optim.lr_scheduler.StepLR(opt, step_size=2, gamma=0.1)
         _iter = 0
 
@@ -48,14 +50,17 @@ class Trainer():
                 else:
                     output = model(data, _eval=False)
                 if self.args.nexpa_train:
-                    loss = model.loss_a(output, label) + model.loss_b(output, label) + model.loss_c(output, label) + \
-                        model.loss_nonexpa()
+                    loss = model.loss_a(output, label) \
+                        + model.loss_b(output, label) \
+                        + model.loss_c(output, label) \
+                        + model.loss_nonexpa()
                 else:
                     loss = F.cross_entropy(output, label)
 
                 opt.zero_grad()
                 loss.backward()
                 opt.step()
+                scheduler.step(loss)
 
                 if _iter % args.n_eval_step == 0:
 
@@ -65,29 +70,38 @@ class Trainer():
                         pred = torch.max(stand_output, dim=1)[1]
 
                         # print(pred)
-                        std_acc = evaluate(pred.cpu().numpy(), label.cpu().numpy()) * 100
+                        std_acc = evaluate(
+                            pred.cpu().numpy(), label.cpu().numpy()) * 100
 
                         pred = torch.max(output, dim=1)[1]
                         # print(pred)
-                        adv_acc = evaluate(pred.cpu().numpy(), label.cpu().numpy()) * 100
+                        adv_acc = evaluate(
+                            pred.cpu().numpy(), label.cpu().numpy()) * 100
 
                     else:
-                        adv_data = self.attack.perturb(data, label, 'mean', False)
+                        adv_data = self.attack.perturb(
+                            data, label, 'mean', False)
 
                         with torch.no_grad():
                             adv_output = model(adv_data, _eval=True)
                         pred = torch.max(adv_output, dim=1)[1]
                         # print(label)
                         # print(pred)
-                        adv_acc = evaluate(pred.cpu().numpy(), label.cpu().numpy()) * 100
+                        adv_acc = evaluate(
+                            pred.cpu().numpy(), label.cpu().numpy()) * 100
 
                         pred = torch.max(output, dim=1)[1]
                         # print(pred)
-                        std_acc = evaluate(pred.cpu().numpy(), label.cpu().numpy()) * 100
+                        std_acc = evaluate(
+                            pred.cpu().numpy(), label.cpu().numpy()) * 100
 
                     # only calculating the training time
                     logger.info('epoch: %d, iter: %d, spent %.2f s, tr_loss: %.3f' % (
                         epoch, _iter, time() - begin_time, loss.item()))
+                    print(model.loss_a(output, label))
+                    print(model.loss_b(output, label))
+                    print(model.loss_c(output, label))
+                    print(model.loss_nonexpa())
 
                     logger.info('standard acc: %.3f %%, robustness acc: %.3f %%' % (
                         std_acc, adv_acc))
@@ -99,17 +113,20 @@ class Trainer():
                         logger.info('\n' + '='*30 + ' evaluation ' + '='*30)
                         logger.info('test acc: %.3f %%, test adv acc: %.3f %%' % (
                             va_acc, va_adv_acc))
-                        logger.info('='*28 + ' end of evaluation ' + '='*28 + '\n')
+                        logger.info(
+                            '='*28 + ' end of evaluation ' + '='*28 + '\n')
 
                     begin_time = time()
 
                 if _iter % args.n_store_image_step == 0:
                     tv.utils.save_image(torch.cat([data.cpu(), adv_data.cpu()], dim=0),
-                                        os.path.join(args.log_folder, 'images_%d.jpg' % _iter),
+                                        os.path.join(
+                                            args.log_folder, 'images_%d.jpg' % _iter),
                                         nrow=16)
 
                 if _iter % args.n_checkpoint_step == 0:
-                    file_name = os.path.join(args.model_folder, 'checkpoint_%d.pth' % _iter)
+                    file_name = os.path.join(
+                        args.model_folder, 'checkpoint_%d.pth' % _iter)
                     save_model(model, file_name)
 
                 _iter += 1
@@ -128,7 +145,8 @@ class Trainer():
                 output = model(data, _eval=True)
 
                 pred = torch.max(output, dim=1)[1]
-                te_acc = evaluate(pred.cpu().numpy(), label.cpu().numpy(), 'sum')
+                te_acc = evaluate(pred.cpu().numpy(),
+                                  label.cpu().numpy(), 'sum')
                 total_acc += te_acc
                 num += output.shape[0]
 
@@ -140,7 +158,8 @@ class Trainer():
                     adv_output = model(adv_data, _eval=True)
 
                     adv_pred = torch.max(adv_output, dim=1)[1]
-                    adv_acc = evaluate(adv_pred.cpu().numpy(), label.cpu().numpy(), 'sum')
+                    adv_acc = evaluate(adv_pred.cpu().numpy(),
+                                       label.cpu().numpy(), 'sum')
                     total_adv_acc += adv_acc
                 else:
                     total_adv_acc = -num
@@ -190,7 +209,8 @@ def main(args):
                                        transform=tv.transforms.ToTensor(),
                                        download=True)
 
-        tr_loader = DataLoader(tr_dataset, batch_size=args.batch_size, shuffle=True, num_workers=4)
+        tr_loader = DataLoader(
+            tr_dataset, batch_size=args.batch_size, shuffle=True, num_workers=4)
 
         # evaluation during training
         te_dataset = tv.datasets.MNIST(args.data_root,
@@ -198,7 +218,8 @@ def main(args):
                                        transform=tv.transforms.ToTensor(),
                                        download=True)
 
-        te_loader = DataLoader(te_dataset, batch_size=args.batch_size, shuffle=False, num_workers=4)
+        te_loader = DataLoader(
+            te_dataset, batch_size=args.batch_size, shuffle=False, num_workers=4)
 
         trainer.train(model, tr_loader, te_loader, args.adv_train)
     elif args.todo == 'test':
